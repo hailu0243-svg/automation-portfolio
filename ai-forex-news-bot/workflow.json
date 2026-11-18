@@ -1,0 +1,432 @@
+{
+  "name": "AI Forex News and Economic Calendar Bot",
+  "nodes": [
+    {
+      "id": "b4ef704f-dedf-4eb5-ac09-83589f7ead8d",
+      "name": "Weekday 07:00 Brief Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        240,
+        300
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 7 * * 1-5"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "3aff3ef4-d71a-4473-87d4-c208f55f4c97",
+      "name": "Fetch Economic Calendar",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        540,
+        300
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "https://nfs.faireconomy.media/ff_calendar_thisweek.json",
+        "options": {
+          "timeout": 20000
+        }
+      }
+    },
+    {
+      "id": "4c54f903-6b7e-44cf-a5b9-f57f7e916d94",
+      "name": "Today High-Impact Events",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        840,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const TZ = 'Africa/Addis_Ababa';\nlet events = [];\nfor (const item of $input.all()) {\n  const j = item.json;\n  if (Array.isArray(j)) { events = events.concat(j); }\n  else if (j && j.title) { events.push(j); }\n}\nconst dayKey = (d) => d.toLocaleDateString('en-CA', { timeZone: TZ });\nconst fmtTime = (d) => d.toLocaleTimeString('en-GB', { timeZone: TZ, hour: '2-digit', minute: '2-digit', hour12: false });\nconst today = dayKey(new Date());\nconst todays = events\n  .filter((e) => e.impact === 'High' && e.date && dayKey(new Date(e.date)) === today)\n  .sort((a, b) => new Date(a.date) - new Date(b.date));\nconst lines = todays.map((e) => fmtTime(new Date(e.date)) + ' | ' + e.country + ' | ' + e.title + ' | forecast: ' + (e.forecast || 'n/a') + ' | previous: ' + (e.previous || 'n/a'));\nreturn [{ json: { count: todays.length, eventsText: lines.length ? lines.join('\\n') : 'No high-impact events today.' } }];"
+      }
+    },
+    {
+      "id": "9451eca9-9a91-49b4-9db3-5ac429729105",
+      "name": "Fetch Forex News",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.2,
+      "position": [
+        1140,
+        300
+      ],
+      "parameters": {
+        "url": "https://news.google.com/rss/search?q=forex+market+when:1d&hl=en-US&gl=US&ceid=US:en"
+      },
+      "executeOnce": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "272234e9-f676-46fd-9072-7a69c2f3ef43",
+      "name": "Build Brief Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const news = $input.all().map((i) => i.json).filter((j) => j && j.title).slice(0, 8);\nconst headlines = news.length ? news.map((n, i) => (i + 1) + '. ' + n.title).join('\\n') : 'No headlines available.';\nconst ev = $('Today High-Impact Events').first().json;\nconst context = 'Today: ' + new Date().toISOString().slice(0, 10) + '\\n\\nHIGH-IMPACT EVENTS TODAY (times in Addis Ababa time, UTC+3):\\n' + ev.eventsText + '\\n\\nLATEST FOREX HEADLINES:\\n' + headlines;\nreturn [{ json: { context } }];"
+      }
+    },
+    {
+      "id": "d31fdf02-4617-4d6c-86df-7d1044171880",
+      "name": "Gemini Brief Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.2,
+      "position": [
+        1440,
+        520
+      ],
+      "parameters": {
+        "modelName": "models/gemini-3-flash-preview",
+        "options": {
+          "temperature": 0.2
+        }
+      },
+      "credentials": {
+        "googlePalmApi": {
+          "id": "YOUR_CREDENTIAL_ID",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "id": "640b7894-b9dc-49dc-86f7-1e3b68b40519",
+      "name": "AI Write Morning Brief",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        1740,
+        300
+      ],
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.context }}",
+        "messages": {
+          "messageValues": [
+            {
+              "type": "SystemMessagePromptTemplate",
+              "message": "You are a forex market assistant writing a short morning brief for a retail trader. Use ONLY the data provided. Never invent numbers, forecasts, events or prices. Write plain text for Telegram with no markdown symbols and never use the characters < > or &.\n\nDo not write a title or date line. Start directly with Market mood.\n\nStructure:\n1) Market mood: 1-2 sentences based on the headlines.\n2) Key events today: time, currency, event, forecast vs previous. If forecast or previous is n/a, just leave it out.\n3) Pairs to watch: link each event currency to major pairs it can move (for example USD events can move EUR/USD, USD/JPY, XAU/USD) and say why in one short line. Do not predict direction.\n4) One short risk reminder (volatility around releases, spreads, position size).\n\nKeep it under 1200 characters. If there are no high-impact events, say so and focus on the headlines. End with: Information only, not financial advice."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "7d5a9454-9d11-4750-916a-ba1c04e6ceda",
+      "name": "Send Morning Brief",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2040,
+        300
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=🌅 Morning Forex Brief - {{ $now.toFormat(\"EEE d MMM\") }}\n\n{{ $json.text }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "YOUR_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "id": "5cce2c17-dfdb-40eb-9c0e-cab4bfb89626",
+      "name": "Every 30 Min Alert Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        240,
+        760
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0,30 7-21 * * 1-5"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "01af4e1a-856d-41d9-90eb-172b13997f38",
+      "name": "Fetch Calendar for Alerts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        540,
+        760
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "https://nfs.faireconomy.media/ff_calendar_thisweek.json",
+        "options": {
+          "timeout": 20000
+        }
+      }
+    },
+    {
+      "id": "c20158d1-f36b-4390-9597-edf6c320ade3",
+      "name": "Find Upcoming High-Impact Events",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        840,
+        760
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const TZ = 'Africa/Addis_Ababa';\nlet events = [];\nfor (const item of $input.all()) {\n  const j = item.json;\n  if (Array.isArray(j)) { events = events.concat(j); }\n  else if (j && j.title) { events.push(j); }\n}\nconst fmtTime = (d) => d.toLocaleTimeString('en-GB', { timeZone: TZ, hour: '2-digit', minute: '2-digit', hour12: false });\nconst now = Date.now();\nconst upcoming = events\n  .filter((e) => {\n    if (e.impact !== 'High' || !e.date) return false;\n    const mins = (new Date(e.date).getTime() - now) / 60000;\n    return mins > 15 && mins <= 45;\n  })\n  .sort((a, b) => new Date(a.date) - new Date(b.date));\nif (upcoming.length === 0) return [];\nconst lines = upcoming.map((e) => fmtTime(new Date(e.date)) + ' | ' + e.country + ' | ' + e.title + ' | forecast: ' + (e.forecast || 'n/a') + ' | previous: ' + (e.previous || 'n/a'));\nreturn [{ json: { count: upcoming.length, eventsText: lines.join('\\n') } }];"
+      }
+    },
+    {
+      "id": "38da84c1-aa24-4d11-9563-6ed586016fe7",
+      "name": "Gemini Alert Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.2,
+      "position": [
+        1140,
+        980
+      ],
+      "parameters": {
+        "modelName": "models/gemini-3-flash-preview",
+        "options": {
+          "temperature": 0.2
+        }
+      },
+      "credentials": {
+        "googlePalmApi": {
+          "id": "YOUR_CREDENTIAL_ID",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "id": "f69e356d-0e65-4224-b43a-3ae59cc41df1",
+      "name": "AI Explain Upcoming Events",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        1140,
+        760
+      ],
+      "parameters": {
+        "promptType": "define",
+        "text": "=HIGH-IMPACT EVENTS STARTING SOON (times in Addis Ababa time, UTC+3):\n{{ $json.eventsText }}",
+        "messages": {
+          "messageValues": [
+            {
+              "type": "SystemMessagePromptTemplate",
+              "message": "You are a forex market assistant sending a short heads-up alert to a retail trader before a high-impact news release. Use ONLY the data provided. Never invent numbers or events. Write plain text for Telegram, no markdown symbols, and never use the characters < > or &.\n\nFor each event give: time, currency, event name, forecast vs previous, and which major pairs may move (for example USD events can move EUR/USD, USD/JPY, XAU/USD). Do not predict direction. Add one short reminder about volatility and spreads. Keep it under 600 characters. End with: Not financial advice."
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "be3a9714-2678-4469-ad88-1c1acc7c2575",
+      "name": "Send Event Alert",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1440,
+        760
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=⚠️ HIGH-IMPACT NEWS SOON\n\n{{ $json.text }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "YOUR_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "id": "72ea31f0-618a-4bf1-91c4-f3c0895de2f1",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        100,
+        100
+      ],
+      "parameters": {
+        "content": "## AI Forex News and Economic Calendar Bot\nTop row: weekday 07:00 morning brief (events + news, written by Gemini).\nBottom row: every 30 min on weekdays, alerts 15-45 min before high-impact events.\nTimes use Africa/Addis_Ababa. Data: Forex Factory weekly calendar JSON and Google News RSS.\n\nBefore you run: connect your Gemini and Telegram credentials and paste your Telegram chat ID in the 2 Telegram nodes.",
+        "color": 4
+      }
+    }
+  ],
+  "connections": {
+    "Weekday 07:00 Brief Trigger": {
+      "main": [
+        [
+          {
+            "node": "Fetch Economic Calendar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Economic Calendar": {
+      "main": [
+        [
+          {
+            "node": "Today High-Impact Events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Today High-Impact Events": {
+      "main": [
+        [
+          {
+            "node": "Fetch Forex News",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Forex News": {
+      "main": [
+        [
+          {
+            "node": "Build Brief Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Brief Context": {
+      "main": [
+        [
+          {
+            "node": "AI Write Morning Brief",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Brief Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Write Morning Brief",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Write Morning Brief": {
+      "main": [
+        [
+          {
+            "node": "Send Morning Brief",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every 30 Min Alert Trigger": {
+      "main": [
+        [
+          {
+            "node": "Fetch Calendar for Alerts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Calendar for Alerts": {
+      "main": [
+        [
+          {
+            "node": "Find Upcoming High-Impact Events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Upcoming High-Impact Events": {
+      "main": [
+        [
+          {
+            "node": "AI Explain Upcoming Events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Alert Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Explain Upcoming Events",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Explain Upcoming Events": {
+      "main": [
+        [
+          {
+            "node": "Send Event Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Africa/Addis_Ababa"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

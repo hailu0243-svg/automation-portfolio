@@ -1,0 +1,913 @@
+{
+  "name": "AI Lead Tracker with Follow-Up",
+  "nodes": [
+    {
+      "id": "fe6e30bb-b035-4245-9937-452924a793e6",
+      "name": "New Lead Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.2,
+      "position": [
+        240,
+        300
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "new-lead",
+        "authentication": "none",
+        "responseMode": "onReceived"
+      }
+    },
+    {
+      "id": "ace44043-5af7-48b3-9d8d-c5b58c734400",
+      "name": "Valid API Key?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        390,
+        200
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.headers['x-api-key'] ?? '' }}",
+              "operator": {
+                "operation": "equals",
+                "type": "string"
+              },
+              "rightValue": "YOUR_SECRET_KEY"
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        }
+      }
+    },
+    {
+      "id": "810d8cd7-d169-4344-8b09-d45bbf94cae7",
+      "name": "Clean Lead Data",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        540,
+        300
+      ],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "205b1e63-5089-43af-9de6-42059726a139",
+              "name": "lead_id",
+              "value": "={{ $now.toMillis() }}",
+              "type": "string"
+            },
+            {
+              "id": "0f45fdfd-f815-4500-93e8-e8559de1e0ed",
+              "name": "date",
+              "value": "={{ $now.toFormat(\"yyyy-MM-dd HH:mm\") }}",
+              "type": "string"
+            },
+            {
+              "id": "4223658f-920f-43fc-b294-d7d5ac5f0424",
+              "name": "name",
+              "value": "={{ $json.body?.name ?? $json.name ?? \"Unknown\" }}",
+              "type": "string"
+            },
+            {
+              "id": "9eae3ebd-20c0-495d-b3aa-acae271cc05e",
+              "name": "phone",
+              "value": "={{ $json.body?.phone ?? $json.phone ?? \"\" }}",
+              "type": "string"
+            },
+            {
+              "id": "1964019d-8789-4388-97c0-7bd42a1bc8e5",
+              "name": "email",
+              "value": "={{ $json.body?.email ?? $json.email ?? \"\" }}",
+              "type": "string"
+            },
+            {
+              "id": "75e0298d-9d55-4af6-bb2d-12a3b59467dd",
+              "name": "message",
+              "value": "={{ $json.body?.message ?? $json.message ?? \"\" }}",
+              "type": "string"
+            },
+            {
+              "id": "b3cf1898-d42e-4eae-b804-f73a4d0a6112",
+              "name": "source",
+              "value": "={{ $json.body?.source ?? $json.source ?? \"Unknown\" }}",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "43340bbf-3392-4b4e-acbd-dcabbef332c6",
+      "name": "AI Score Lead",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        840,
+        300
+      ],
+      "parameters": {
+        "promptType": "define",
+        "text": "=Lead name: {{ $json.name }}\nSource: {{ $json.source }}\nMessage: {{ $json.message }}",
+        "hasOutputParser": true,
+        "messages": {
+          "messageValues": [
+            {
+              "type": "SystemMessagePromptTemplate",
+              "message": "You are a sales assistant for a small business. Read the lead message and score it. Hot = ready to buy, asking for price, or wants to book. Warm = interested but has questions. Cold = just browsing or unclear.\n\nAlso write a friendly suggested_reply of exactly 2 short sentences, in the same language as the lead message.\n\nBUSINESS INFO (edit these lines for each client):\nBusiness name: Ashu Shop\nServices and prices: Haircut 300 birr\nOpening hours: Monday to Friday, 8:00 to 19:00\nLocation: Assosa\n\nRULES FOR THE REPLY:\n- Use only the business info above. Never invent prices, hours, or facts.\n- If a field says NOT SET, do not mention it. Instead invite the lead to share a good time to talk or call.\n- Never write placeholders like [Price] or [Name].\n- Reply only in the required JSON format."
+            }
+          ]
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "3b1bcf31-5ae3-4ab5-a8ca-68b37a471f39",
+      "name": "Gemini Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.2,
+      "position": [
+        540,
+        520
+      ],
+      "parameters": {
+        "modelName": "models/gemini-3-flash-preview",
+        "options": {
+          "temperature": 0.1
+        }
+      },
+      "credentials": {
+        "googlePalmApi": {
+          "id": "YOUR_CREDENTIAL_ID",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "id": "e21e372c-834a-4c28-8a1e-6b80188c00e6",
+      "name": "Lead Score Format",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        700,
+        520
+      ],
+      "parameters": {
+        "schemaType": "fromJson",
+        "jsonSchemaExample": "{ \"score\": \"Hot\", \"reason\": \"Asks about price and wants to start this week\", \"suggested_reply\": \"Hi Sara, thanks for your interest! Our monthly package is available and we can start this week. When is a good time to talk?\" }"
+      }
+    },
+    {
+      "id": "2a4bc925-9eed-4a23-b74d-d1d61b556b3c",
+      "name": "Build Lead Row",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1140,
+        300
+      ],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "adb896c6-7678-4130-a0ec-98038b79e3fc",
+              "name": "lead_id",
+              "value": "={{ $('Clean Lead Data').item.json.lead_id }}",
+              "type": "string"
+            },
+            {
+              "id": "208631a7-2839-4f6e-8532-9a7ddf36d467",
+              "name": "date",
+              "value": "={{ $('Clean Lead Data').item.json.date }}",
+              "type": "string"
+            },
+            {
+              "id": "b9e1f124-5d04-4127-805b-7ac21e8e2a4f",
+              "name": "name",
+              "value": "={{ $('Clean Lead Data').item.json.name }}",
+              "type": "string"
+            },
+            {
+              "id": "91b00662-2269-4a1c-b8f7-63c286b8527b",
+              "name": "phone",
+              "value": "={{ $('Clean Lead Data').item.json.phone }}",
+              "type": "string"
+            },
+            {
+              "id": "98a07343-a676-4f24-8a1c-20cfc0a052a7",
+              "name": "email",
+              "value": "={{ $('Clean Lead Data').item.json.email }}",
+              "type": "string"
+            },
+            {
+              "id": "3f7e1836-1b30-4b5b-9afc-bafd053deb0b",
+              "name": "message",
+              "value": "={{ $('Clean Lead Data').item.json.message }}",
+              "type": "string"
+            },
+            {
+              "id": "26207baa-50c5-42d2-8888-a8f99b492d04",
+              "name": "source",
+              "value": "={{ $('Clean Lead Data').item.json.source }}",
+              "type": "string"
+            },
+            {
+              "id": "9fb0907b-83ef-4c1f-a197-b0f1ace4c517",
+              "name": "score",
+              "value": "={{ $json.output?.score ?? \"Unscored\" }}",
+              "type": "string"
+            },
+            {
+              "id": "2592f0c5-ecab-4e58-9ab3-f62305d9c77c",
+              "name": "reason",
+              "value": "={{ $json.output?.reason ?? \"AI scoring failed - check manually\" }}",
+              "type": "string"
+            },
+            {
+              "id": "f12eb2d0-8197-4921-809f-f829ee0836be",
+              "name": "suggested_reply",
+              "value": "={{ $json.output?.suggested_reply ?? \"\" }}",
+              "type": "string"
+            },
+            {
+              "id": "ab58a41d-0645-43ec-ba60-423b30dcd777",
+              "name": "status",
+              "value": "New",
+              "type": "string"
+            },
+            {
+              "id": "a27e15b4-7eca-47e9-8f7e-68d8acf92000",
+              "name": "followup_sent",
+              "value": "No",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "95809d8a-b660-4842-8af8-dc4305bbb625",
+      "name": "Save to Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1440,
+        300
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "cachedResultName": "Lead Tracker",
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Sheet1"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "schema": []
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "YOUR_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "id": "2a228bc2-8ae9-46d5-8698-87202807fa19",
+      "name": "Alert Owner",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1740,
+        300
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "={{ $(\"Build Lead Row\").item.json.score === \"Hot\" ? \"🔥 HOT LEAD\" : \"New lead\" }}\nName: {{ $(\"Build Lead Row\").item.json.name }} ({{ $(\"Build Lead Row\").item.json.score }})\nPhone: {{ $(\"Build Lead Row\").item.json.phone }}\nSource: {{ $(\"Build Lead Row\").item.json.source }}\nMessage: {{ $(\"Build Lead Row\").item.json.message }}\nWhy: {{ $(\"Build Lead Row\").item.json.reason }}\n\nSuggested reply:\n{{ $(\"Build Lead Row\").item.json.suggested_reply }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "YOUR_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "id": "c2f8b93a-2143-4a44-a437-9fde0dca30b4",
+      "name": "Wait 2 Days",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2040,
+        300
+      ],
+      "parameters": {
+        "amount": 2,
+        "resume": "timeInterval",
+        "unit": "days"
+      }
+    },
+    {
+      "id": "882dd51e-2b7f-473a-954a-8060ae6222a3",
+      "name": "Check Lead Status",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2340,
+        300
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "cachedResultName": "Lead Tracker",
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Sheet1"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "lead_id",
+              "lookupValue": "={{ $('Build Lead Row').item.json.lead_id }}"
+            }
+          ]
+        },
+        "options": {
+          "returnFirstMatch": true
+        }
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "YOUR_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "id": "20b5074a-15cd-4fba-885d-2ec5e20e886b",
+      "name": "Still New?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2640,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.status }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "rightValue": "New"
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "2d21f43f-e806-475b-92d6-0f5d9a58c59a",
+      "name": "Send Follow-Up Reminder",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2940,
+        200
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=⏰ FOLLOW-UP NEEDED (2 days, no contact yet)\nName: {{ $json.name }}\nPhone: {{ $json.phone }}\n\nSuggested follow-up:\n{{ $json.suggested_reply }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "YOUR_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "id": "801f8f18-1e3a-47ac-9bf4-94160730958f",
+      "name": "Mark Follow-Up Sent",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3240,
+        200
+      ],
+      "parameters": {
+        "resource": "sheet",
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "cachedResultName": "Lead Tracker",
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Sheet1"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "lead_id"
+          ],
+          "value": {
+            "lead_id": "={{ $(\"Check Lead Status\").item.json.lead_id }}",
+            "followup_sent": "Yes"
+          },
+          "schema": []
+        }
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "YOUR_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "id": "e947c0c8-f1db-4d8f-a297-252882c80e66",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        100,
+        496
+      ],
+      "parameters": {
+        "content": "## AI Lead Tracker\nThree ways in: webhook (needs the x-api-key header), web form, Telegram bot.\n\n**Google Sheet headers (row 1):**\nlead_id, date, name, phone, email, message, source, score, reason, suggested_reply, status, followup_sent\n\n**Before you run:** pick your sheet in the 3 Google Sheets nodes, paste your Telegram chat ID in the 2 Alert/Reminder nodes, set your own secret in Valid API Key?, and connect your credentials.\n\nTo stop a lead's follow-up, change its status in the sheet from New to Contacted.",
+        "color": 4
+      }
+    },
+    {
+      "id": "22e53533-641d-4b1d-b5da-253219fd6678",
+      "name": "Lead Form",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.6,
+      "position": [
+        240,
+        500
+      ],
+      "parameters": {
+        "authentication": "none",
+        "formDescription": "Tell us what you need and we will reply very soon.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Your name",
+              "fieldName": "name",
+              "fieldType": "text",
+              "placeholder": "Full name",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Phone number",
+              "fieldName": "phone",
+              "fieldType": "text",
+              "placeholder": "+251...",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Email (optional)",
+              "fieldName": "email",
+              "fieldType": "email",
+              "placeholder": "you@example.com"
+            },
+            {
+              "fieldLabel": "How can we help you?",
+              "fieldName": "message",
+              "fieldType": "textarea",
+              "placeholder": "Write your question or what you want to buy",
+              "requiredField": true
+            },
+            {
+              "defaultValue": "Lead Form",
+              "fieldName": "source",
+              "fieldType": "hiddenField"
+            }
+          ]
+        },
+        "formTitle": "Contact Us",
+        "options": {
+          "appendAttribution": false,
+          "buttonLabel": "Send",
+          "path": "lead-form",
+          "respondWithOptions": {
+            "values": {
+              "formSubmittedText": "Thank you! We received your message and will contact you very soon.",
+              "respondWith": "text"
+            }
+          }
+        },
+        "responseMode": "onReceived"
+      }
+    },
+    {
+      "id": "cff88d48-2857-4949-a156-ba5869e0bb14",
+      "name": "Telegram Lead Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        760
+      ],
+      "parameters": {
+        "additionalFields": {},
+        "updates": [
+          "message"
+        ]
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "YOUR_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "id": "06d65e0c-7e26-4cbd-bf09-5c71e6eebe9a",
+      "name": "Is Start Command?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        540,
+        760
+      ],
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "leftValue": "={{ $json.message?.text ?? '' }}",
+              "operator": {
+                "operation": "startsWith",
+                "type": "string"
+              },
+              "rightValue": "/start"
+            }
+          ],
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose"
+          }
+        }
+      }
+    },
+    {
+      "id": "ebc7e89a-549b-4346-9c2e-92e09f9536af",
+      "name": "Send Welcome",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        840,
+        900
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{ $json.message.chat.id }}",
+        "text": "Welcome to Ashu Shop! 👋\nSend us your message or question (for example, a haircut booking) and we will reply very soon.",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "YOUR_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "id": "3d116e24-5d51-4b89-aa12-d6a8dfa5dac2",
+      "name": "Confirm to Customer",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        840,
+        760
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{ $json.message.chat.id }}",
+        "text": "Thank you! We received your message and will contact you very soon. 🙏",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "credentials": {
+        "telegramApi": {
+          "id": "YOUR_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "id": "7fcd9e70-1f00-4cc6-9bde-b1f18f27ce12",
+      "name": "Map Telegram Lead",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        840,
+        620
+      ],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a6de045f-bf78-4d33-bb13-8667782cda16",
+              "name": "name",
+              "value": "={{ [$json.message.from.first_name, $json.message.from.last_name].filter(Boolean).join(' ') || 'Unknown' }}",
+              "type": "string"
+            },
+            {
+              "id": "0db49c39-dd4f-4f47-9e2f-3ce904a8d9b2",
+              "name": "phone",
+              "value": "={{ $json.message.from.username ? '@' + $json.message.from.username : 'Telegram ID ' + $json.message.chat.id }}",
+              "type": "string"
+            },
+            {
+              "id": "afddabc6-4920-4180-ab79-ab1da9ff9cec",
+              "name": "email",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "7c5daa33-0bdd-4f1c-b860-95fa4e0e521f",
+              "name": "message",
+              "value": "={{ $json.message.text ?? '(non-text message)' }}",
+              "type": "string"
+            },
+            {
+              "id": "b50272f0-20bd-42ce-823e-5d7860009d5f",
+              "name": "source",
+              "value": "Telegram Bot",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "connections": {
+    "New Lead Webhook": {
+      "main": [
+        [
+          {
+            "node": "Valid API Key?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valid API Key?": {
+      "main": [
+        [
+          {
+            "node": "Clean Lead Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lead Form": {
+      "main": [
+        [
+          {
+            "node": "Clean Lead Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map Telegram Lead": {
+      "main": [
+        [
+          {
+            "node": "Clean Lead Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clean Lead Data": {
+      "main": [
+        [
+          {
+            "node": "AI Score Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Score Lead": {
+      "main": [
+        [
+          {
+            "node": "Build Lead Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Score Lead",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lead Score Format": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "AI Score Lead",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Lead Row": {
+      "main": [
+        [
+          {
+            "node": "Save to Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save to Sheet": {
+      "main": [
+        [
+          {
+            "node": "Alert Owner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert Owner": {
+      "main": [
+        [
+          {
+            "node": "Wait 2 Days",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 2 Days": {
+      "main": [
+        [
+          {
+            "node": "Check Lead Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Lead Status": {
+      "main": [
+        [
+          {
+            "node": "Still New?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Still New?": {
+      "main": [
+        [
+          {
+            "node": "Send Follow-Up Reminder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Follow-Up Reminder": {
+      "main": [
+        [
+          {
+            "node": "Mark Follow-Up Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Lead Trigger": {
+      "main": [
+        [
+          {
+            "node": "Is Start Command?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Start Command?": {
+      "main": [
+        [
+          {
+            "node": "Send Welcome",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Confirm to Customer",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Map Telegram Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}
