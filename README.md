@@ -1,22 +1,26 @@
-# Ashenafi Hailu: Automation and Trading-Tools Portfolio
+# Python Trade Journal
 
-Fintech and trading-automation developer based in Assosa, Ethiopia (UTC+3). I build AI workflows with n8n, Gemini and Telegram, and Python tools for trading research.
+A command-line trade journal that logs trades and reports win rate and risk-to-reward, then checks them against readiness benchmarks (40%+ win rate and 1.8+ average R over 50 trades before sizing up).
 
-**Contact:** hailu0243@gmail.com | +251900871797 | [LinkedIn](https://www.linkedin.com/in/ashenafi-hailu-abdisa-b68419433)
+**Stack:** Python, pytest
 
-## Projects
+## What it does
 
-| Project | What it does | Stack |
-| --- | --- | --- |
-| [AI Forex News and Economic Calendar Bot](ai-forex-news-bot/) | Weekday morning market brief and alerts before high-impact economic releases | n8n, Gemini, Telegram, REST |
-| [AI Lead Tracker with Follow-Up](ai-lead-tracker/) | Captures leads from a Telegram bot, form and webhook, scores them with AI, logs them and reminds the owner to follow up | n8n, Gemini, Google Sheets, Telegram |
-| [AI Clinic Receptionist](ai-clinic-receptionist/) | Turns patient Telegram messages into structured appointment requests for human review; never confirms bookings | n8n, Gemini AI agent, Telegram |
-| [Python Trade Journal](python-trade-journal/) | Logs trades and calculates win rate and risk-to-reward against readiness benchmarks | Python, pytest |
+- Logs each trade
+- Calculates win rate and risk-to-reward (R)
+- Tracks progress toward the readiness benchmarks
+- Unit tests in `test_journal.py`
 
-## How to use the n8n exports
+## Files
 
-1. In n8n, create a new workflow, open the menu and choose **Import from file**, then select the project's `workflow.json`.
-2. Connect your own credentials (Telegram, Google Gemini, Google Sheets where used).
-3. Replace the placeholders: `YOUR_TELEGRAM_CHAT_ID`, `YOUR_GOOGLE_SHEET_ID`, `YOUR_SECRET_KEY`, `YOUR_DATA_TABLE_ID`.
+- `journal.py`: core logic
+- `main.py`: entry point
+- `test_journal.py`: pytest tests
 
-All exports are sanitized: they contain no credentials, tokens, chat IDs, sheet IDs or secrets. Screenshots use demo data only.
+## Run
+
+[Add the exact commands from your project, for example how to start `main.py` and how to run `pytest`.]
+
+## What I learned
+
+[Add 2 or 3 honest lines: what was hard, what you would improve next.]
